@@ -436,7 +436,7 @@ router.post('/forgot-password', async (req, res) => {
     await user.save();
 
     // Create reset link
-    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+    const resetLink = `${process.env.FRONTEND_URL || 'https://weeshop.onrender.com'}/reset-password?token=${resetToken}`;
 
     // Send reset email
     const emailSent = await sendPasswordResetEmail(user.email, user.fullName, resetToken, resetLink);

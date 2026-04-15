@@ -65,7 +65,7 @@ async function cashoutWithRetry(params, maxAttempts = 1) {
 
 async function syncSellerPayout(tx, sellerPayout) {
   if (!tx || !sellerPayout || !tx.orderId) return;
-  const alitogoshopPayoutUrl = process.env.ALITOGOSHOP_PAYOUT_SYNC_URL || 'http://localhost/alitogoshop/api_payout_sync.php';
+  const alitogoshopPayoutUrl = process.env.ALITOGOSHOP_PAYOUT_SYNC_URL || 'https://alitogoshop.onrender.com/api_payout_sync.php';
   if (!alitogoshopPayoutUrl) return;
 
   const payload = {

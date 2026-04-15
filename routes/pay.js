@@ -12,7 +12,7 @@ const SYNC_SECRET =
 const WEESHOP_ORDER_VERIFY_URL =
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'http://localhost:5000/api/paygate/weedelivred-verify-order';
+  'https://weeshop.onrender.com/api/paygate/weedelivred-verify-order';
 
 function parseNumber(value) {
   const num = Number.parseFloat(value);
@@ -60,7 +60,7 @@ const mapPayGateStatus = (status) => {
 
 const triggerSettlementWebhook = async ({ tx, paygateData }) => {
   if (!tx || !tx.identifier) return;
-  const base = process.env.SELF_BASE_URL || `http://127.0.0.1:${process.env.PORT || 4001}`;
+  const base = process.env.SELF_BASE_URL || `https://weedelivred.onrender.com`;
   const url = `${base.replace(/\/$/, '')}/api/webhook`;
   const payload = {
     auth_token: process.env.PAYGATE_AUTH_TOKEN,
@@ -423,7 +423,7 @@ router.post('/withdraw', async (req, res) => {
 
       // Synchroniser dÃ©bit avec AliTogoShop (wallet MySQL)
       try {
-        const alitogoshopUrl = process.env.ALITOGOSHOP_URL || 'http://localhost/alitogoshop';
+        const alitogoshopUrl = process.env.ALITOGOSHOP_URL || 'https://alitogoshop.onrender.com';
         const alitogoshopKey = process.env.ALITOGOSHOP_API_KEY || '';
         if (!alitogoshopKey) {
           throw new Error('ALITOGOSHOP_API_KEY not configured');
@@ -468,7 +468,7 @@ router.post('/withdraw', async (req, res) => {
         identifier: identifier,
         phone: phone,
         network: network || 'FLOOZ',
-        callback_url: process.env.WITHDRAW_CALLBACK_URL || 'http://localhost:4001/api/webhook/withdraw'
+        callback_url: process.env.WITHDRAW_CALLBACK_URL || 'https://weedelivred.onrender.com/api/webhook/withdraw'
       });
       const paygateUrl = `${paygateBaseUrl}?${paygateParams.toString()}`;
 

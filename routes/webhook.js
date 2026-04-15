@@ -10,7 +10,7 @@ const WalletService = require('../services/walletService');
 const WEESHOP_ORDER_VERIFY_URL =
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'http://localhost:5000/api/paygate/weedelivred-verify-order';
+  'https://weeshop.onrender.com/api/paygate/weedelivred-verify-order';
 
 // Commission mapping per category (AliTogoShop)
 const DEFAULT_COMMISSION_RATE = 0.05;
@@ -49,12 +49,12 @@ const WEESHOP_PAYOUT_SYNC_URL =
   process.env.WEESHOP_WEEDELIVRED_PAYOUT_SYNC_URL ||
   process.env.ALITOGOSHOP_PAYOUT_SYNC_URL ||
   process.env.WEESHOP_PAYOUT_SYNC_URL ||
-  'http://localhost:5000/api/paygate/weedelivred-payout-sync';
+  'https://weeshop.onrender.com/api/paygate/weedelivred-payout-sync';
 const WEESHOP_PAYMENT_SYNC_URL =
   process.env.WEESHOP_WEEDELIVRED_PAYMENT_SYNC_URL ||
   process.env.ALITOGOSHOP_SYNC_URL ||
   process.env.WEESHOP_PAYMENT_SYNC_URL ||
-  'http://localhost:5000/api/paygate/weedelivred-sync';
+  'https://weeshop.onrender.com/api/paygate/weedelivred-sync';
 const PAYGATE_STATUS_V1_URL = process.env.PAYGATE_STATUS_V1_URL || 'https://paygateglobal.com/api/v1/status';
 const PAYGATE_STATUS_V2_URL = process.env.PAYGATE_STATUS_V2_URL || 'https://paygateglobal.com/api/v2/status';
 

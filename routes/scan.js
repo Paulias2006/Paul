@@ -15,7 +15,7 @@ const SYNC_SECRET =
 const WEESHOP_ORDER_VERIFY_URL =
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'http://localhost:5000/api/paygate/weedelivred-verify-order';
+  'https://weeshop.onrender.com/api/paygate/weedelivred-verify-order';
 
 function parseNumber(value) {
   const num = Number.parseFloat(value);

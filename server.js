@@ -27,7 +27,7 @@ app.use(helmet({
 }));
 
 // CORS Configuration
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:8080')
+const allowedOrigins = (process.env.CORS_ORIGIN || 'https://weeshop.onrender.com,https://weedelivred.onrender.com')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
