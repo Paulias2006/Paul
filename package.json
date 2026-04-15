@@ -1,0 +1,33 @@
+{
+  "name": "alitogopay-backend",
+  "version": "0.1.0",
+  "description": "Backend API for AlitogoPay - payment orchestration and PayGate integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "migrate": "node scripts/migrate.js",
+    "retry:payouts": "node scripts/retry_payouts.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "express-validator": "^7.3.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.0.0",
+    "multer": "^2.0.2",
+    "mysql2": "^3.2.0",
+    "nodemailer": "^7.0.12",
+    "ws": "^8.17.1",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.2",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.7.4"
+  }
+}
