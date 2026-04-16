@@ -660,17 +660,20 @@ router.post('/', async (req, res) => {
         const orderIdKey = String(tx.orderId);
         try {
           const Message = require('../models/Message');
-          await Message.updateMany(
-            { type: 'order_notification', 'metadata.orderId': orderIdKey },
-            {
-              $set: {
-                'metadata.paymentStatus': 'paid',
-                'metadata.paymentReference': resolvedPaymentReference || null,
-                'metadata.paidAt': new Date(),
-                'metadata.status': 'completed'
-              }
-            }
-          );
+          const orderMessages = await Message.find({
+            type: 'order_notification',
+            'metadata.orderId': orderIdKey,
+          });
+          for (const message of orderMessages) {
+            message.metadata = {
+              ...(message.metadata || {}),
+              paymentStatus: 'paid',
+              paymentReference: resolvedPaymentReference || null,
+              paidAt: new Date(),
+              status: message.metadata?.status || 'ready',
+            };
+            await message.save();
+          }
         } catch (msgErr) {
           console.error('❌ Message update failed:', msgErr?.message || String(msgErr));
         }

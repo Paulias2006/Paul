@@ -1,7 +1,9 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const axios = require('axios');
 const Message = require('../models/Message');
+const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
@@ -17,6 +19,59 @@ const toNumberSafe = (value, fallback = 0) => {
 };
 
 const plus7Days = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+const shouldNotifyCouriers = (status) => !['waiting_leg1', 'waiting_group', 'cancelled', 'completed'].includes(
+  toStringSafe(status),
+);
+
+async function notifyCouriersForMessage(subject, metadata) {
+  try {
+    const fcmKey = process.env.FCM_SERVER_KEY || '';
+    if (!fcmKey) return;
+
+    const couriers = await User.find({
+      role: 'courier',
+      'metadata.notificationPreferences.pushNotifications': { $ne: false },
+      'metadata.fcmTokens.0': { $exists: true }
+    }).select('metadata.fcmTokens').lean();
+
+    const tokens = couriers
+      .flatMap((courier) => courier.metadata?.fcmTokens || [])
+      .filter(Boolean);
+
+    const uniqueTokens = Array.from(new Set(tokens));
+    if (uniqueTokens.length === 0) return;
+
+    for (let index = 0; index < uniqueTokens.length; index += 500) {
+      const batch = uniqueTokens.slice(index, index + 500);
+      await axios.post('https://fcm.googleapis.com/fcm/send', {
+        registration_ids: batch,
+        notification: {
+          title: subject || 'Nouvelle livraison',
+          body: 'Une commande prete attend un livreur',
+        },
+        data: {
+          orderId: metadata?.orderId ? String(metadata.orderId) : '',
+          legIndex: metadata?.leg_index != null ? String(metadata.leg_index) : '',
+          legTotal: metadata?.leg_total != null ? String(metadata.leg_total) : '',
+          clientLat: metadata?.clientLat != null ? String(metadata.clientLat) : '',
+          clientLng: metadata?.clientLng != null ? String(metadata.clientLng) : '',
+          boutiqueLat: metadata?.boutiqueLat != null ? String(metadata.boutiqueLat) : '',
+          boutiqueLng: metadata?.boutiqueLng != null ? String(metadata.boutiqueLng) : '',
+        },
+        priority: 'high',
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `key=${fcmKey}`,
+        },
+        timeout: 10000,
+      });
+    }
+  } catch (error) {
+    console.error('Notify couriers from delivery route error:', error?.message || error);
+  }
+}
 
 const buildOrderContent = ({
   orderNumber,
@@ -121,6 +176,42 @@ const buildMessageMetadata = ({
     : [],
 });
 
+const resolveDeliveryStatus = (existingDelivery, initialStatus) => {
+  if (initialStatus === 'cancelled') {
+    return 'cancelled';
+  }
+  const currentStatus = toStringSafe(existingDelivery?.status);
+  if (['accepted', 'assigned', 'picked_up', 'in_transit', 'completed', 'delivered'].includes(currentStatus)) {
+    return currentStatus;
+  }
+  return toStringSafe(initialStatus, 'ready');
+};
+
+const mergeMessageMetadata = (baseMeta, existingMeta, initialStatus) => {
+  const previous = existingMeta && typeof existingMeta === 'object' ? existingMeta : {};
+  const paymentStatus = toStringSafe(baseMeta.paymentStatus) || toStringSafe(previous.paymentStatus, 'pending');
+  const paymentReference = toStringSafe(baseMeta.paymentReference) || toStringSafe(previous.paymentReference);
+  const nextStatus = initialStatus === 'cancelled'
+    ? 'cancelled'
+    : ['assigned', 'picked_up', 'in_transit', 'completed'].includes(toStringSafe(previous.status))
+      ? previous.status
+      : toStringSafe(initialStatus, previous.status || 'ready');
+  return {
+    ...previous,
+    ...baseMeta,
+    status: nextStatus,
+    deliveryStatus: previous.deliveryStatus ?? null,
+    courierId: previous.courierId ?? null,
+    courierAssignedAt: previous.courierAssignedAt ?? null,
+    courierLat: previous.courierLat ?? null,
+    courierLng: previous.courierLng ?? null,
+    paidAt: previous.paidAt ?? null,
+    rejectedBy: Array.isArray(previous.rejectedBy) ? previous.rejectedBy : [],
+    paymentStatus,
+    paymentReference,
+  };
+};
+
 router.post('/create', async (req, res) => {
   try {
     const {
@@ -203,8 +294,12 @@ router.post('/create', async (req, res) => {
       toStringSafe(leg_status) ||
       (legIndexNum && legIndexNum > 1 ? 'waiting_leg1' : 'ready');
 
+    const deliveryFilter = legIndexNum != null
+      ? { order_id: orderIdKey, 'leg.index': legIndexNum }
+      : { order_id: orderIdKey };
+    const existingDelivery = await db.findDelivery(deliveryFilter);
     const deliveryDoc = {
-      _id: uuidv4(),
+      _id: existingDelivery?._id || uuidv4(),
       order_id: orderIdKey,
       commande_id: toStringSafe(commande_id || order_number),
       leg: {
@@ -274,11 +369,9 @@ router.post('/create', async (req, res) => {
         payment_mode: toStringSafe(mode_paiement, 'delivery'),
       },
       expiresAt: plus7Days(),
-      status: initialStatus,
+      status: resolveDeliveryStatus(existingDelivery, initialStatus),
       source: 'weeshop',
     };
-
-    const savedDelivery = await db.createDelivery(deliveryDoc);
 
     const messageFilter = {
       type: 'order_notification',
@@ -289,7 +382,9 @@ router.post('/create', async (req, res) => {
       toStringSafe(from_label) && toStringSafe(to_label)
         ? `${toStringSafe(from_label)} -> ${toStringSafe(to_label)}`
         : '';
-    const meta = buildMessageMetadata({
+    const existingMessage = await Message.findOne(messageFilter).lean();
+    const previousMessageStatus = toStringSafe(existingMessage?.metadata?.status);
+    const baseMeta = buildMessageMetadata({
       orderId: orderIdKey,
       orderNumber: order_number || commande_id,
       boutiqueId: boutique_id,
@@ -327,6 +422,18 @@ router.post('/create', async (req, res) => {
       toLng: to_lng,
       initialStatus,
     });
+    const meta = mergeMessageMetadata(baseMeta, existingMessage?.metadata, initialStatus);
+
+    const savedDelivery = existingDelivery
+      ? await db.updateDelivery(
+        { _id: existingDelivery._id },
+        {
+          ...deliveryDoc,
+          courier: existingDelivery.courier || deliveryDoc.courier,
+          updated_at: new Date(),
+        },
+      )
+      : await db.createDelivery(deliveryDoc);
 
     const upsertedMessage = await Message.findOneAndUpdate(
       messageFilter,
@@ -352,6 +459,14 @@ router.post('/create', async (req, res) => {
       },
       { upsert: true, new: true }
     );
+
+    if (
+      upsertedMessage
+      && shouldNotifyCouriers(meta.status)
+      && previousMessageStatus !== meta.status
+    ) {
+      await notifyCouriersForMessage(upsertedMessage.subject, upsertedMessage.metadata);
+    }
 
     return res.status(201).json({
       ok: true,

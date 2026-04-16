@@ -126,7 +126,6 @@ router.get('/available-deliveries', authenticateToken, async (req, res) => {
         { type: 'order_notification' },
         { createdAt: { $gte: oneWeekAgoDate() } },
         { 'metadata.orderId': { $exists: true, $ne: '' } },
-        { 'metadata.paymentStatus': { $ne: 'paid' } },
         availableStatusClause(),
         unassignedCourierClause(),
         notExpiredClause(),
@@ -175,6 +174,7 @@ router.get('/available-deliveries', authenticateToken, async (req, res) => {
           to_lat: delivery.metadata.to_lat,
           to_lng: delivery.metadata.to_lng,
           delivery_fee: delivery.metadata.delivery_fee,
+          paymentStatus: delivery.metadata.paymentStatus,
           photoChoisie: delivery.metadata.photoChoisie,
           items: delivery.metadata.items,
           // Localisation pour le suivi
@@ -209,7 +209,6 @@ router.post('/take-delivery/:deliveryId', authenticateToken, async (req, res) =>
         { createdAt: { $gte: oneWeekAgoDate() } },
         { 'metadata.courierId': courierId },
         { 'metadata.deliveryStatus': { $in: ACTIVE_DELIVERY_STATUSES } },
-        { 'metadata.paymentStatus': { $ne: 'paid' } },
         { 'metadata.status': { $ne: 'completed' } },
         notExpiredClause()
       ]
@@ -233,7 +232,6 @@ router.post('/take-delivery/:deliveryId', authenticateToken, async (req, res) =>
           { _id: deliveryId },
           { type: 'order_notification' },
           { createdAt: { $gte: oneWeekAgoDate() } },
-          { 'metadata.paymentStatus': { $ne: 'paid' } },
           availableStatusClause(),
           unassignedCourierClause(),
           notExpiredClause(),
@@ -248,6 +246,7 @@ router.post('/take-delivery/:deliveryId', authenticateToken, async (req, res) =>
         $set: {
           'metadata.courierId': courierId,
           'metadata.courierAssignedAt': new Date(),
+          'metadata.status': 'assigned',
           'metadata.deliveryStatus': 'assigned',
           'metadata.lastStatusUpdate': new Date()
         }
@@ -295,7 +294,6 @@ router.get('/my-deliveries', authenticateToken, async (req, res) => {
         { type: 'order_notification' },
         { createdAt: { $gte: oneWeekAgoDate() } },
         { 'metadata.courierId': courierId },
-        { 'metadata.paymentStatus': { $ne: 'paid' } },
         { 'metadata.status': { $ne: 'completed' } },
         notExpiredClause()
       ]
