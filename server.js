@@ -27,7 +27,7 @@ app.use(helmet({
 }));
 
 // CORS Configuration
-const allowedOrigins = (process.env.CORS_ORIGIN || 'https://weeshop.onrender.com,https://weedelivred.onrender.com')
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://localhost:8080')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -86,6 +86,7 @@ const deliveryRoutes = require('./routes/delivery');
 const courierRoutes = require('./routes/courier');
 const messageRoutes = require('./routes/messages');
 const payoutsRoutes = require('./routes/payouts');
+const adminRoutes = require('./routes/admin');
 
 // Mount routes
 app.use('/api/auth', authRoutes);
@@ -102,6 +103,7 @@ app.use('/api/delivery', deliveryRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/payouts', payoutsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check endpoints
 app.get('/', (req, res) => res.json({

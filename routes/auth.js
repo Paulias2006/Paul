@@ -8,7 +8,7 @@ const Wallet = require('../models/Wallet');
 const db = require('../db');
 const { registerValidators, loginValidators, validate } = require('../middleware/validation');
 const { authenticateToken } = require('../middleware/auth');
-const { sendOTPEmail, sendPasswordResetEmail } = require('../services/emailService');
+const { sendPasswordResetEmail } = require('../services/emailService');
 
 // JWT Configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-here';
@@ -41,6 +41,20 @@ const generateTokens = (user) => {
 
 const PAYOUT_NETWORKS = new Set(['FLOOZ', 'TMONEY']);
 
+function requireAdminProvision(req, res) {
+  const configuredKey = String(process.env.ADMIN_CREATE_USER_KEY || '').trim();
+  const providedKey = String(req.headers['x-admin-key'] || '').trim();
+  if (!configuredKey || providedKey !== configuredKey) {
+    res.status(403).json({
+      ok: false,
+      error: 'admin_only',
+      message: 'Inscription reservee a l administration Weeshop',
+    });
+    return false;
+  }
+  return true;
+}
+
 function normalizeTogoPhone(input) {
   if (input === undefined || input === null) return null;
   const raw = String(input).trim().replace(/\s+/g, '');
@@ -56,6 +70,9 @@ function normalizeTogoPhone(input) {
 // ==================== REGISTER ====================
 router.post('/register', registerValidators, validate, async (req, res) => {
   try {
+    if (!requireAdminProvision(req, res)) {
+      return;
+    }
     const { email, phone, fullName, password } = req.body;
 
     // Check if user already exists
@@ -75,19 +92,13 @@ router.post('/register', registerValidators, validate, async (req, res) => {
       fullName,
       passwordHash: password, // Will be hashed by pre-save middleware
       role: 'buyer',
+      isEmailVerified: true,
     });
 
-    await user.save();
-
-    // Generate and send OTP verification
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.metadata = user.metadata || {};
-    user.metadata.otpCode = otp;
-    user.metadata.otpExpires = new Date(Date.now() + 600000); // 10 minutes
+    user.metadata.otpCode = null;
+    user.metadata.otpExpires = null;
     await user.save();
-
-    // Send OTP email
-    const emailSent = await sendOTPEmail(user.email, user.fullName, otp);
 
     // Create wallet automatically
     await db.createWallet(user._id);
@@ -101,7 +112,7 @@ router.post('/register', registerValidators, validate, async (req, res) => {
 
     return res.status(201).json({
       ok: true,
-      message: 'User registered successfully. Please verify your email with the OTP code.',
+      message: 'User registered successfully.',
       user: {
         _id: user._id,
         email: user.email,
@@ -116,7 +127,7 @@ router.post('/register', registerValidators, validate, async (req, res) => {
         accessToken,
         refreshToken,
       },
-      emailSent,
+      otpRequired: false,
     });
 
   } catch (error) {
@@ -129,16 +140,68 @@ router.post('/register', registerValidators, validate, async (req, res) => {
   }
 });
 
+router.post('/admin/register', registerValidators, validate, async (req, res) => {
+  try {
+    if (!requireAdminProvision(req, res)) {
+      return;
+    }
+    const { email, phone, fullName, password, role } = req.body;
+    let existingUser = await User.findOne({ $or: [{ email }, { phone }] });
+    if (existingUser) {
+      return res.status(400).json({
+        ok: false,
+        error: 'user_exists',
+        message: 'User with this email or phone already exists',
+      });
+    }
+    const safeRole = ['buyer', 'seller', 'admin', 'courier'].includes(String(role || ''))
+      ? String(role)
+      : 'courier';
+    const user = new User({
+      email,
+      phone,
+      fullName,
+      passwordHash: password,
+      role: safeRole,
+      isEmailVerified: true,
+    });
+    user.metadata = user.metadata || {};
+    user.metadata.otpCode = null;
+    user.metadata.otpExpires = null;
+    await user.save();
+    await db.createWallet(user._id);
+    return res.status(201).json({
+      ok: true,
+      message: 'User created by admin',
+      user: {
+        _id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('Admin register error:', error);
+    return res.status(500).json({
+      ok: false,
+      error: 'registration_failed',
+      message: 'Failed to register user',
+    });
+  }
+});
+
 // ==================== VERIFY OTP ====================
 router.post('/verify-otp', async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email } = req.body;
 
-    if (!email || !otp) {
+    if (!email) {
       return res.status(400).json({
         ok: false,
         error: 'missing_fields',
-        message: 'Email and OTP are required',
+        message: 'Email is required',
       });
     }
 
@@ -151,55 +214,15 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    if (user.isEmailVerified) {
-      return res.status(400).json({
-        ok: false,
-        error: 'already_verified',
-        message: 'Email already verified',
-      });
-    }
-
-    if (!user.metadata?.otpCode || !user.metadata?.otpExpires) {
-      return res.status(400).json({
-        ok: false,
-        error: 'no_otp',
-        message: 'No OTP found. Please request a new one.',
-      });
-    }
-
-    console.log('DEBUG OTP:', {
-      stored: user.metadata.otpCode,
-      storedType: typeof user.metadata.otpCode,
-      input: otp,
-      inputType: typeof otp,
-      equal: user.metadata.otpCode === otp
-    });
-
-    if (user.metadata.otpCode !== otp) {
-      return res.status(400).json({
-        ok: false,
-        error: 'invalid_otp',
-        message: 'Invalid OTP code',
-      });
-    }
-
-    if (new Date() > user.metadata.otpExpires) {
-      return res.status(400).json({
-        ok: false,
-        error: 'expired_otp',
-        message: 'OTP code has expired',
-      });
-    }
-
-    // Verify email
     user.isEmailVerified = true;
+    user.metadata = user.metadata || {};
     user.metadata.otpCode = null;
     user.metadata.otpExpires = null;
     await user.save();
 
     return res.json({
       ok: true,
-      message: 'Email verified successfully',
+      message: 'Email verification is currently disabled. Account activated successfully.',
       user: {
         _id: user._id,
         email: user.email,
@@ -240,28 +263,16 @@ router.post('/resend-otp', async (req, res) => {
       });
     }
 
-    if (user.isEmailVerified) {
-      return res.status(400).json({
-        ok: false,
-        error: 'already_verified',
-        message: 'Email already verified',
-      });
-    }
-
-    // Generate new OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.metadata = user.metadata || {};
-    user.metadata.otpCode = otp;
-    user.metadata.otpExpires = new Date(Date.now() + 600000); // 10 minutes
+    user.isEmailVerified = true;
+    user.metadata.otpCode = null;
+    user.metadata.otpExpires = null;
     await user.save();
-
-    // Send OTP email
-    const emailSent = await sendOTPEmail(user.email, user.fullName, otp);
 
     return res.json({
       ok: true,
-      message: 'OTP sent successfully',
-      emailSent,
+      message: 'OTP temporarily disabled. Account already active.',
+      otpRequired: false,
     });
 
   } catch (error) {
