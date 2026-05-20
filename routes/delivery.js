@@ -125,6 +125,11 @@ const buildMessageMetadata = ({
   toAddress,
   toLat,
   toLng,
+  modeLivraison,
+  pickupPointPhone,
+  pickupPointNetwork,
+  pickupPointAccountName,
+  pickupPointShare,
   initialStatus,
 }) => ({
   orderId: toStringSafe(orderId),
@@ -165,6 +170,11 @@ const buildMessageMetadata = ({
   to_address: toStringSafe(toAddress),
   to_lat: toNumberSafe(toLat, 0),
   to_lng: toNumberSafe(toLng, 0),
+  mode_livraison: toStringSafe(modeLivraison),
+  pickup_point_phone: toStringSafe(pickupPointPhone),
+  pickup_point_network: toStringSafe(pickupPointNetwork),
+  pickup_point_account_name: toStringSafe(pickupPointAccountName),
+  pickup_point_share: toNumberSafe(pickupPointShare, 0),
   items: Array.isArray(items)
     ? items.map((it) => ({
         productId: toStringSafe(it.productId || it.product_id || it.id),
@@ -249,6 +259,10 @@ router.post('/create', async (req, res) => {
       mode_livraison,
       statut_paiement,
       paygate_reference,
+      pickup_point_phone,
+      pickup_point_network,
+      pickup_point_account_name,
+      pickup_point_share,
       leg_type,
       leg_index,
       leg_total,
@@ -420,6 +434,11 @@ router.post('/create', async (req, res) => {
       toAddress: to_address,
       toLat: to_lat,
       toLng: to_lng,
+      modeLivraison: mode_livraison,
+      pickupPointPhone: pickup_point_phone,
+      pickupPointNetwork: pickup_point_network,
+      pickupPointAccountName: pickup_point_account_name,
+      pickupPointShare: pickup_point_share,
       initialStatus,
     });
     const meta = mergeMessageMetadata(baseMeta, existingMessage?.metadata, initialStatus);

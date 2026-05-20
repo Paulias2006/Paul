@@ -55,6 +55,71 @@ function sanitizeMetadata(metadata) {
   return clean;
 }
 
+function normalizePhoneDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function sameTogoPhone(a, b) {
+  const left = normalizePhoneDigits(a);
+  const right = normalizePhoneDigits(b);
+  if (!left || !right) return false;
+  return left === right || left.slice(-8) === right.slice(-8);
+}
+
+function isPickupPointLeg(metadata = {}) {
+  return String(metadata.leg_type || metadata.legType || '').toLowerCase() === 'boutique_to_point' ||
+    String(metadata.mode_livraison || metadata.modeLivraison || '').toLowerCase() === 'point_retrait';
+}
+
+async function notifyPickupPointUsersForDelivery(delivery) {
+  try {
+    const fcmKey = process.env.FCM_SERVER_KEY || '';
+    if (!fcmKey) return;
+    const meta = delivery.metadata || {};
+    const targetPhone = meta.pickup_point_phone || meta.pickupPointPhone || '';
+    if (!targetPhone) return;
+
+    const users = await User.find({
+      role: 'pickup_point',
+      'metadata.notificationPreferences.pushNotifications': { $ne: false },
+      'metadata.fcmTokens.0': { $exists: true },
+    }).select('phone metadata').lean();
+
+    const tokens = users
+      .filter((user) => sameTogoPhone(user.phone, targetPhone) || sameTogoPhone(user.metadata?.payoutPhone, targetPhone))
+      .flatMap((user) => user.metadata?.fcmTokens || [])
+      .filter(Boolean);
+
+    const uniqueTokens = Array.from(new Set(tokens));
+    if (uniqueTokens.length === 0) return;
+
+    for (let index = 0; index < uniqueTokens.length; index += 500) {
+      const batch = uniqueTokens.slice(index, index + 500);
+      await axios.post('https://fcm.googleapis.com/fcm/send', {
+        registration_ids: batch,
+        notification: {
+          title: 'Colis arrive au point de retrait',
+          body: 'Confirmez la reception pour rendre la commande disponible au client.',
+        },
+        data: {
+          orderId: meta.orderId ? String(meta.orderId) : '',
+          deliveryId: String(delivery._id),
+          type: 'pickup_point_arrival',
+        },
+        priority: 'high',
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `key=${fcmKey}`,
+        },
+        timeout: 10000,
+      });
+    }
+  } catch (error) {
+    console.error('Notify pickup point error:', error.message);
+  }
+}
+
 async function notifyCouriersForDelivery(delivery) {
   try {
     const fcmKey = process.env.FCM_SERVER_KEY || '';
@@ -376,12 +441,21 @@ router.put('/update-delivery-status/:deliveryId', authenticateToken, async (req,
     let nextLegActivated = null;
     if (status === 'delivered') {
       delivery.metadata.deliveredAt = new Date();
-      delivery.metadata.status = 'completed';
+      if (isPickupPointLeg(delivery.metadata)) {
+        delivery.metadata.status = 'pickup_pending_confirmation';
+        delivery.metadata.pickupPointDropoffAt = new Date();
+      } else {
+        delivery.metadata.status = 'completed';
+      }
       // Note: Courier fee is calculated and paid in webhook.js when payment is confirmed
       // No wallet update here to avoid double payment
     }
 
     await delivery.save();
+
+    if (status === 'delivered' && isPickupPointLeg(delivery.metadata)) {
+      await notifyPickupPointUsersForDelivery(delivery);
+    }
 
     // If this was leg 1 of a multi-leg delivery, unlock leg 2
     if (status === 'delivered') {

@@ -33,7 +33,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['buyer', 'seller', 'admin', 'courier'],
+      enum: ['buyer', 'seller', 'admin', 'courier', 'pickup_point'],
       default: 'buyer',
     },
     isActive: {

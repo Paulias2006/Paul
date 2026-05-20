@@ -154,7 +154,7 @@ router.post('/admin/register', registerValidators, validate, async (req, res) =>
         message: 'User with this email or phone already exists',
       });
     }
-    const safeRole = ['buyer', 'seller', 'admin', 'courier'].includes(String(role || ''))
+    const safeRole = ['buyer', 'seller', 'admin', 'courier', 'pickup_point'].includes(String(role || ''))
       ? String(role)
       : 'courier';
     const user = new User({
