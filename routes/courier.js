@@ -4,9 +4,9 @@ const mongoose = require('mongoose');
 const router = express.Router();
 const Message = require('../models/Message');
 const User = require('../models/User');
-const axios = require('axios');
 const { authenticateToken } = require('../middleware/auth');
 const liveTracking = require('../services/live_tracking_ws');
+const { sendPushToUsersByRole } = require('../services/pushService');
 
 const DELIVERY_VISIBLE_DAYS = 7;
 const AVAILABLE_ORDER_STATUSES = ['acceptee', 'prete', 'ready'];
@@ -73,48 +73,24 @@ function isPickupPointLeg(metadata = {}) {
 
 async function notifyPickupPointUsersForDelivery(delivery) {
   try {
-    const fcmKey = process.env.FCM_SERVER_KEY || '';
-    if (!fcmKey) return;
     const meta = delivery.metadata || {};
     const targetPhone = meta.pickup_point_phone || meta.pickupPointPhone || '';
     if (!targetPhone) return;
 
-    const users = await User.find({
-      role: 'pickup_point',
-      'metadata.notificationPreferences.pushNotifications': { $ne: false },
-      'metadata.fcmTokens.0': { $exists: true },
-    }).select('phone metadata').lean();
-
-    const tokens = users
-      .filter((user) => sameTogoPhone(user.phone, targetPhone) || sameTogoPhone(user.metadata?.payoutPhone, targetPhone))
-      .flatMap((user) => user.metadata?.fcmTokens || [])
-      .filter(Boolean);
-
-    const uniqueTokens = Array.from(new Set(tokens));
-    if (uniqueTokens.length === 0) return;
-
-    for (let index = 0; index < uniqueTokens.length; index += 500) {
-      const batch = uniqueTokens.slice(index, index + 500);
-      await axios.post('https://fcm.googleapis.com/fcm/send', {
-        registration_ids: batch,
-        notification: {
-          title: 'Colis arrive au point de retrait',
-          body: 'Confirmez la reception pour rendre la commande disponible au client.',
-        },
+    await sendPushToUsersByRole(
+      'pickup_point',
+      {
+        title: 'Colis arrive au point de retrait',
+        body: 'Confirmez la reception pour rendre la commande disponible au client.',
         data: {
           orderId: meta.orderId ? String(meta.orderId) : '',
           deliveryId: String(delivery._id),
           type: 'pickup_point_arrival',
         },
-        priority: 'high',
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `key=${fcmKey}`,
-        },
-        timeout: 10000,
-      });
-    }
+      },
+      (user) => sameTogoPhone(user.phone, targetPhone) ||
+        sameTogoPhone(user.metadata?.payoutPhone, targetPhone),
+    );
   } catch (error) {
     console.error('Notify pickup point error:', error.message);
   }
@@ -122,57 +98,25 @@ async function notifyPickupPointUsersForDelivery(delivery) {
 
 async function notifyCouriersForDelivery(delivery) {
   try {
-    const fcmKey = process.env.FCM_SERVER_KEY || '';
-    if (!fcmKey) return;
-
-    const couriers = await User.find({
-      role: 'courier',
-      'metadata.notificationPreferences.pushNotifications': { $ne: false },
-      'metadata.fcmTokens.0': { $exists: true }
-    }).select('metadata.fcmTokens').lean();
-
-    const tokens = couriers
-      .flatMap(c => c.metadata?.fcmTokens || [])
-      .filter(Boolean);
-
-    const uniqueTokens = Array.from(new Set(tokens));
-    if (uniqueTokens.length === 0) return;
-
-    const chunks = [];
-    for (let i = 0; i < uniqueTokens.length; i += 500) {
-      chunks.push(uniqueTokens.slice(i, i + 500));
-    }
-
     const meta = delivery.metadata || {};
     const legIndex = meta.leg_index || meta.legIndex || 1;
     const legTotal = meta.leg_total || meta.legTotal || 1;
     const legLabel = legTotal > 1 ? ` (étape ${legIndex}/${legTotal})` : '';
     const notifTitle = delivery.subject || `Nouvelle livraison${legLabel}`;
     const notifBody = 'Course disponible - Ouvrir pour détails';
-    const dataPayload = {
-      orderId: meta.orderId ? String(meta.orderId) : '',
-      legIndex: String(legIndex),
-      legTotal: String(legTotal),
-      clientLat: meta.clientLat != null ? String(meta.clientLat) : '',
-      clientLng: meta.clientLng != null ? String(meta.clientLng) : '',
-      boutiqueLat: meta.boutiqueLat != null ? String(meta.boutiqueLat) : '',
-      boutiqueLng: meta.boutiqueLng != null ? String(meta.boutiqueLng) : ''
-    };
-
-    for (const batch of chunks) {
-      await axios.post('https://fcm.googleapis.com/fcm/send', {
-        registration_ids: batch,
-        notification: { title: notifTitle, body: notifBody },
-        data: dataPayload,
-        priority: 'high'
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `key=${fcmKey}`
-        },
-        timeout: 10000
-      });
-    }
+    await sendPushToUsersByRole('courier', {
+      title: notifTitle,
+      body: notifBody,
+      data: {
+        orderId: meta.orderId ? String(meta.orderId) : '',
+        legIndex: String(legIndex),
+        legTotal: String(legTotal),
+        clientLat: meta.clientLat != null ? String(meta.clientLat) : '',
+        clientLng: meta.clientLng != null ? String(meta.clientLng) : '',
+        boutiqueLat: meta.boutiqueLat != null ? String(meta.boutiqueLat) : '',
+        boutiqueLng: meta.boutiqueLng != null ? String(meta.boutiqueLng) : '',
+      },
+    });
   } catch (error) {
     console.error('Notify couriers error:', error.message);
   }

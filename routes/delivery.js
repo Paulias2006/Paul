@@ -1,10 +1,9 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
-const axios = require('axios');
 const Message = require('../models/Message');
-const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
+const { sendPushToUsersByRole } = require('../services/pushService');
 
 const router = express.Router();
 
@@ -26,48 +25,19 @@ const shouldNotifyCouriers = (status) => !['waiting_leg1', 'waiting_group', 'can
 
 async function notifyCouriersForMessage(subject, metadata) {
   try {
-    const fcmKey = process.env.FCM_SERVER_KEY || '';
-    if (!fcmKey) return;
-
-    const couriers = await User.find({
-      role: 'courier',
-      'metadata.notificationPreferences.pushNotifications': { $ne: false },
-      'metadata.fcmTokens.0': { $exists: true }
-    }).select('metadata.fcmTokens').lean();
-
-    const tokens = couriers
-      .flatMap((courier) => courier.metadata?.fcmTokens || [])
-      .filter(Boolean);
-
-    const uniqueTokens = Array.from(new Set(tokens));
-    if (uniqueTokens.length === 0) return;
-
-    for (let index = 0; index < uniqueTokens.length; index += 500) {
-      const batch = uniqueTokens.slice(index, index + 500);
-      await axios.post('https://fcm.googleapis.com/fcm/send', {
-        registration_ids: batch,
-        notification: {
-          title: subject || 'Nouvelle livraison',
-          body: 'Une commande prete attend un livreur',
-        },
-        data: {
-          orderId: metadata?.orderId ? String(metadata.orderId) : '',
-          legIndex: metadata?.leg_index != null ? String(metadata.leg_index) : '',
-          legTotal: metadata?.leg_total != null ? String(metadata.leg_total) : '',
-          clientLat: metadata?.clientLat != null ? String(metadata.clientLat) : '',
-          clientLng: metadata?.clientLng != null ? String(metadata.clientLng) : '',
-          boutiqueLat: metadata?.boutiqueLat != null ? String(metadata.boutiqueLat) : '',
-          boutiqueLng: metadata?.boutiqueLng != null ? String(metadata.boutiqueLng) : '',
-        },
-        priority: 'high',
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `key=${fcmKey}`,
-        },
-        timeout: 10000,
-      });
-    }
+    await sendPushToUsersByRole('courier', {
+      title: subject || 'Nouvelle livraison',
+      body: 'Une commande prete attend un livreur',
+      data: {
+        orderId: metadata?.orderId ? String(metadata.orderId) : '',
+        legIndex: metadata?.leg_index != null ? String(metadata.leg_index) : '',
+        legTotal: metadata?.leg_total != null ? String(metadata.leg_total) : '',
+        clientLat: metadata?.clientLat != null ? String(metadata.clientLat) : '',
+        clientLng: metadata?.clientLng != null ? String(metadata.clientLng) : '',
+        boutiqueLat: metadata?.boutiqueLat != null ? String(metadata.boutiqueLat) : '',
+        boutiqueLng: metadata?.boutiqueLng != null ? String(metadata.boutiqueLng) : '',
+      },
+    });
   } catch (error) {
     console.error('Notify couriers from delivery route error:', error?.message || error);
   }

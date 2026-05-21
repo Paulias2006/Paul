@@ -2,9 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const Message = require('../models/Message');
-const User = require('../models/User');
-const axios = require('axios');
 const { authenticateToken } = require('../middleware/auth');
+const { sendPushToUsersByRole } = require('../services/pushService');
 
 // ==================== GET ADMIN MESSAGES ====================
 router.get('/admin-messages', authenticateToken, async (req, res) => {
@@ -126,54 +125,22 @@ router.post('/admin-messages', async (req, res) => {
 
     await message.save();
 
-    // Push notification to couriers (FCM) for order notifications
-    // Avoid notifying for leg2 while it is still blocked (waiting_leg1)
+    // Push notification to couriers for order notifications.
+    // Avoid notifying for leg2 while it is still blocked (waiting_leg1).
     const legStatus = (metadata && metadata.status) ? String(metadata.status) : '';
     const shouldNotify = legStatus !== 'waiting_leg1';
     if (type === 'order_notification' && shouldNotify) {
-      const fcmKey = process.env.FCM_SERVER_KEY || '';
-      if (fcmKey) {
-        const couriers = await User.find({
-          role: 'courier',
-          'metadata.notificationPreferences.pushNotifications': { $ne: false },
-          'metadata.fcmTokens.0': { $exists: true }
-        }).select('metadata.fcmTokens').lean();
-
-        const tokens = couriers
-          .flatMap(c => c.metadata?.fcmTokens || [])
-          .filter(Boolean);
-
-        const uniqueTokens = Array.from(new Set(tokens));
-        const chunks = [];
-        for (let i = 0; i < uniqueTokens.length; i += 500) {
-          chunks.push(uniqueTokens.slice(i, i + 500));
-        }
-
-        const notifTitle = subject || 'Nouvelle livraison';
-        const notifBody = 'Nouvelle commande disponible - Ouvrir pour détails';
-        const dataPayload = {
+      await sendPushToUsersByRole('courier', {
+        title: subject || 'Nouvelle livraison',
+        body: 'Nouvelle commande disponible - Ouvrir pour details',
+        data: {
           orderId: metadata?.orderId ? String(metadata.orderId) : '',
           clientLat: metadata?.clientLat != null ? String(metadata.clientLat) : '',
           clientLng: metadata?.clientLng != null ? String(metadata.clientLng) : '',
           boutiqueLat: metadata?.boutiqueLat != null ? String(metadata.boutiqueLat) : '',
-          boutiqueLng: metadata?.boutiqueLng != null ? String(metadata.boutiqueLng) : ''
-        };
-
-        for (const batch of chunks) {
-          await axios.post('https://fcm.googleapis.com/fcm/send', {
-            registration_ids: batch,
-            notification: { title: notifTitle, body: notifBody },
-            data: dataPayload,
-            priority: 'high'
-          }, {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `key=${fcmKey}`
-            },
-            timeout: 10000
-          });
-        }
-      }
+          boutiqueLng: metadata?.boutiqueLng != null ? String(metadata.boutiqueLng) : '',
+        },
+      });
     }
 
     return res.status(201).json({

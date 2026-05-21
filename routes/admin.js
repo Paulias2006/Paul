@@ -4,7 +4,13 @@ const User = require('../models/User');
 const router = express.Router();
 
 function requireAdminKey(req, res) {
-  const configuredKey = String(process.env.ADMIN_CREATE_USER_KEY || '').trim();
+  const configuredKey = String(
+    process.env.ADMIN_CREATE_USER_KEY ||
+    process.env.WEEDELIVRED_ADMIN_KEY ||
+    process.env.ALITOGOPAY_ADMIN_KEY ||
+    process.env.WEEDELIVRED_SYNC_SECRET ||
+    '',
+  ).trim();
   const providedKey = String(req.headers['x-admin-key'] || '').trim();
   if (!configuredKey || providedKey !== configuredKey) {
     res.status(403).json({
