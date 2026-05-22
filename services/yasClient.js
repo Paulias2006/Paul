@@ -111,8 +111,11 @@ async function collectPayment({ phone, amount, reference, description, metadata 
   const merchantId = envOrEmpty('YAS_MERCHANT_ID');
   const headers = buildAuthHeaders(envOrEmpty('YAS_COLLECT_AUTH') || envOrEmpty('YAS_API_AUTH'));
  
-  if (!url || !merchantId) {
-    return { ok: false, status: 'pending', reason: 'missing_yas_collect_config' };
+  if (!url) {
+    return { ok: false, status: 'pending', reason: 'missing_yas_collect_url' };
+  }
+  if (!merchantId) {
+    return { ok: false, status: 'pending', reason: 'missing_yas_merchant_id' };
   }
  
   const payload = {
@@ -155,8 +158,11 @@ async function payout({ phone, amount, reference, description, metadata }) {
   const merchantId = envOrEmpty('YAS_MERCHANT_ID');
   const headers = buildAuthHeaders(envOrEmpty('YAS_PAYOUT_AUTH') || envOrEmpty('YAS_API_AUTH'));
  
-  if (!url || !merchantId) {
-    return { ok: false, status: 'pending', reason: 'missing_yas_payout_config' };
+  if (!url) {
+    return { ok: false, status: 'pending', reason: 'missing_yas_payout_url' };
+  }
+  if (!merchantId) {
+    return { ok: false, status: 'pending', reason: 'missing_yas_merchant_id' };
   }
  
   const payload = {
