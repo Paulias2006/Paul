@@ -2,8 +2,8 @@ const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
+const yasClient = require('../services/yasClient');
 
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
@@ -50,36 +50,7 @@ async function verifyOrderWithWeeshop({ orderId, paymentReference }) {
   return response.data;
 }
 
-const mapPayGateStatus = (status) => {
-  if (status === 0 || status === '0') return 'completed';
-  if (status === 2 || status === '2') return 'processing';
-  if (status === 4 || status === '4') return 'failed';
-  if (status === 6 || status === '6') return 'cancelled';
-  return 'processing';
-};
-
-const triggerSettlementWebhook = async ({ tx, paygateData }) => {
-  if (!tx || !tx.identifier) return;
-  const base = process.env.SELF_BASE_URL || `https://weedelivred.onrender.com`;
-  const url = `${base.replace(/\/$/, '')}/api/webhook`;
-  const payload = {
-    auth_token: process.env.PAYGATE_AUTH_TOKEN,
-    identifier: tx.identifier,
-    tx_reference: paygateData?.tx_reference || tx.paygateTxReference || '',
-    payment_reference: paygateData?.payment_reference || tx.paymentReference || '',
-    amount: Number(paygateData?.amount || tx.amount || 0),
-    datetime: paygateData?.datetime || new Date().toISOString(),
-    payment_method: paygateData?.payment_method || tx.paymentMethod || '',
-    phone_number: paygateData?.phone_number || tx.phoneNumber || '',
-    status: 0,
-  };
-  await axios.post(url, payload, {
-    timeout: 15000,
-    headers: { 'Content-Type': 'application/json' },
-  });
-};
-
-// Initiate a payment: create a transaction and call PayGateGlobal
+// Initiate a payment: create a transaction and call YAS/TMoney direct collect API
 router.post('/initiate', async (req, res) => {
   try {
     const {
@@ -94,13 +65,14 @@ router.post('/initiate', async (req, res) => {
       courier_id,
       seller_amount,
       seller_share,
-      network,
       description,
       items,
+      seller_phone,
+      courier_phone,
     } = req.body;
 
-    if (!order_id || !client_phone || !network) {
-      return res.status(400).json({ error: 'Missing required fields: order_id, client_phone, network' });
+    if (!order_id || !client_phone) {
+      return res.status(400).json({ error: 'Missing required fields: order_id, client_phone' });
     }
 
     const orderIdKey = String(order_id).trim();
@@ -203,93 +175,74 @@ router.post('/initiate', async (req, res) => {
       transport_fee: parseFloat(transportAmt),
       identifier: identifier,
       status: 'pending',
-      network: network || null,
+      network: 'TMONEY',
       description: description || `Paiement commande ${order_id}`,
       metadata: {
         courierId: courier_id || null,
         items: Array.isArray(items) ? items : [],
         courier_fee: courier_fee != null ? parseFloat(courier_fee) : null,
         seller_share: sellerShare != null ? Number.parseFloat(sellerShare) : null,
+        seller_phone: seller_phone || null,
+        courier_phone: courier_phone || null,
       }
     };
 
     const transaction = await db.createTransaction(transactionData);
     const txId = transaction._id || transaction.id;
 
-    // Log the request
     await db.createPaymentLog({
       transaction_id: txId,
       type: 'request',
-      endpoint: 'paygate_initiate',
-      payload: { order_id, client_phone, amount: totalAmt, product_amount: prodAmt, transport_amount: transportAmt, seller_share: sellerShare, courier_fee: courier_fee, identifier }
+      endpoint: 'yas_collect',
+      payload: {
+        order_id,
+        client_phone,
+        amount: totalAmt,
+        product_amount: prodAmt,
+        transport_amount: transportAmt,
+        seller_share: sellerShare,
+        courier_fee,
+        identifier,
+      },
     });
 
-    // Call PayGateGlobal API (Method 1 - direct POST)
-    const paygateUrl = 'https://paygateglobal.com/api/v1/pay';
-    const payload = {
-      auth_token: process.env.PAYGATE_AUTH_TOKEN,
-      phone_number: client_phone,
+    const collectResult = await yasClient.collectPayment({
+      phone: client_phone,
       amount: totalAmt,
+      reference: `WS-${String(order_id).slice(-10)}-${identifier}`,
       description: description || `Paiement commande ${order_id}`,
-      identifier: identifier,
-      network: network || 'FLOOZ' // Required: FLOOZ or TMONEY
-    };
+      metadata: {
+        order_id: String(order_id),
+        identifier,
+        seller_share: sellerShare,
+        transport_fee: transportAmt,
+        courier_fee: courier_fee != null ? parseFloat(courier_fee) : null,
+      },
+    });
 
-    const pgRes = await axios.post(paygateUrl, payload, { timeout: 15000 });
-
-    // Log the response
     await db.createPaymentLog({
       transaction_id: txId,
       type: 'response',
-      endpoint: 'paygate_initiate',
-      payload: pgRes.data,
-      status_code: pgRes.status
+      endpoint: 'yas_collect',
+      payload: collectResult.raw || collectResult,
+      status_code: collectResult.ok ? 200 : 500,
     });
 
-    // Update transaction with paygate response
-    const txRef = pgRes.data.tx_reference || null;
-    const status = pgRes.data.status || 2;
-
-    // Log PayGate response for debugging
-    await db.createPaymentLog({
-      transaction_id: txId,
-      type: 'paygate_response',
-      endpoint: 'paygate_initiate',
-      payload: {
-        paygate_status: status,
-        tx_reference: txRef,
-        status_codes: '0=enregistré, 2=auth_invalid, 4=params_invalid, 6=doublon'
-      }
-    });
-
-    // Per PayGate guide: status 0 means registered successfully, others are errors
-    if (status !== 0 && status !== '0') {
-      return res.json({
-        ok: false,
-        error: 'paygate_error',
-        paygate_status: status,
-        message: {
-          0: 'Transaction enregistrée',
-          2: 'Token invalide',
-          4: 'Paramètres invalides',
-          6: 'Doublon détecté'
-        }[status] || 'Erreur inconnue'
-      });
-    }
-
-    // Transaction registered successfully - keep pending until webhook confirms
-    await db.updateTransaction(txId, {
-      paygate_tx_reference: txRef,
-      status: 'processing' // waiting for payment
+    const updatedTx = await db.updateTransaction(txId, {
+      status: collectResult.ok ? 'processing' : 'failed',
+      payment_reference: collectResult.providerReference || null,
+      payment_method: 'TMONEY',
+      phone_number: client_phone,
     });
 
     return res.json({
-      ok: true,
-      txId,
+      ok: collectResult.ok,
+      txId: String(txId),
       identifier,
-      tx_reference: txRef,
-      paygate_status: status,
-      pgResponse: pgRes.data
+      payment_reference: collectResult.providerReference || null,
+      provider_status: collectResult.providerStatus || '',
+      status: collectResult.status || 'pending',
+      transaction: updatedTx,
     });
   } catch (err) {
     console.error('Payment initiation error:', err);
@@ -306,18 +259,20 @@ router.post('/initiate', async (req, res) => {
       });
     }
 
-    return res.status(500).json({ error: 'failed', details: err.message });
+    return res.status(500).json({ ok: false, error: 'failed', details: err.message });
   }
 });
 
-// Check transaction status by identifier or tx_reference
+// Check transaction status by identifier or payment_reference
 router.post('/status', async (req, res) => {
   try {
-    const { identifier, tx_reference } = req.body;
-    if (!identifier && !tx_reference) return res.status(400).json({ error: 'Provide identifier or tx_reference' });
+    const { identifier, payment_reference } = req.body;
+    if (!identifier && !payment_reference) {
+      return res.status(400).json({ error: 'Provide identifier or payment_reference' });
+    }
 
     const transaction = await db.findTransaction(
-      identifier ? { identifier } : { paygate_tx_reference: tx_reference }
+      identifier ? { identifier } : { payment_reference }
     );
 
     if (!transaction) return res.status(404).json({ error: 'not_found' });
@@ -459,27 +414,10 @@ router.post('/withdraw', async (req, res) => {
         return res.status(500).json({ ok: false, error: 'Sync debit failed', details: syncErr.message });
       }
 
-      // Build PayGate URL for withdrawal
-      const paygateBaseUrl = 'https://paygateglobal.com/v1/page';
-      const paygateParams = new URLSearchParams({
-        token: process.env.PAYGATE_AUTH_TOKEN || '85910664-0d67-481c-b27a-03058183020e',
-        amount: parsedAmount.toString(),
-        description: description || `Retrait ${courier_id ? 'livreur' : 'vendeur'} ${user_id}`,
-        identifier: identifier,
-        phone: phone,
-        network: network || 'FLOOZ',
-        callback_url: process.env.WITHDRAW_CALLBACK_URL || 'https://weedelivred.onrender.com/api/webhook/withdraw'
-      });
-      const paygateUrl = `${paygateBaseUrl}?${paygateParams.toString()}`;
-
-      console.log('[WITHDRAW] ✅ Retrait initié - ID:', identifier, 'Montant:', parsedAmount, 'Network:', network);
-
-      return res.json({
-        ok: true,
-        txId,
-        identifier,
-        paygate_url: paygateUrl,
-        message: 'Withdrawal initiated successfully'
+      return res.status(410).json({
+        ok: false,
+        error: 'withdraw_disabled',
+        message: 'Retraits désactivés (pas de PayGate, pas de wallet interne).',
       });
     } catch (e) {
       console.error('[WITHDRAW] Erreur création transaction:', e);
@@ -492,81 +430,45 @@ router.post('/withdraw', async (req, res) => {
   }
 });
 
-// Check transaction status via PayGateGlobal API (Method v1 - by tx_reference)
+// Check transaction status via YAS API (by payment_reference or identifier)
 router.post('/check-status', async (req, res) => {
   try {
-    const { tx_reference, identifier } = req.body;
-    if (!tx_reference && !identifier) {
-      return res.status(400).json({ error: 'Provide tx_reference or identifier' });
+    const { payment_reference, identifier } = req.body;
+    if (!payment_reference && !identifier) {
+      return res.status(400).json({ error: 'Provide payment_reference or identifier' });
     }
 
     // Find local transaction
-    const tx = tx_reference
-      ? await db.findTransaction({ paygate_tx_reference: tx_reference })
+    const tx = payment_reference
+      ? await db.findTransaction({ payment_reference })
       : await db.findTransaction({ identifier });
 
     if (!tx) {
       return res.status(404).json({ error: 'transaction_not_found' });
     }
 
-    const beforeStatus = String(tx.status || '').toLowerCase();
-    let paygateResponse = null;
-    let internalStatus = beforeStatus || 'processing';
+    const statusResult = await yasClient.fetchStatus({
+      reference: tx.paymentReference || payment_reference || '',
+      providerReference: tx.paymentReference || payment_reference || '',
+    });
 
-    try {
-      if (tx.paygateTxReference) {
-        // Method v1 (tx_reference)
-        const v1Url = 'https://paygateglobal.com/api/v1/status';
-        const payload = {
-          auth_token: process.env.PAYGATE_AUTH_TOKEN,
-          tx_reference: tx.paygateTxReference,
-        };
-        const pgRes = await axios.post(v1Url, payload, { timeout: 15000 });
-        paygateResponse = pgRes.data || {};
-      } else if (tx.identifier) {
-        // Method v2 (identifier) - required for QR page flow
-        const v2Url = 'https://paygateglobal.com/api/v2/status';
-        const payload = {
-          auth_token: process.env.PAYGATE_AUTH_TOKEN,
-          identifier: tx.identifier,
-        };
-        const pgRes = await axios.post(v2Url, payload, { timeout: 15000 });
-        paygateResponse = pgRes.data || {};
-      }
-    } catch (pgErr) {
-      console.error('PayGate status check failed:', pgErr.message);
-      return res.status(500).json({ error: 'paygate_error', details: pgErr.message });
-    }
-
-    if (paygateResponse) {
-      const pgStatus = paygateResponse.status ?? 2;
-      internalStatus = mapPayGateStatus(pgStatus);
-      const updated = await db.updateTransaction(tx._id, {
+    if (statusResult.ok) {
+      const normalized = yasClient.normalizePaymentStatus(statusResult.providerStatus || statusResult.status || '');
+      const internalStatus = normalized === 'paid'
+        ? 'completed'
+        : (normalized === 'failed' ? 'failed' : 'processing');
+      await db.updateTransaction(tx._id, {
         status: internalStatus,
-        paygate_tx_reference: paygateResponse.tx_reference || tx.paygateTxReference || null,
-        payment_reference: paygateResponse.payment_reference || tx.paymentReference || null,
-        payment_method: paygateResponse.payment_method || tx.paymentMethod || null,
+        payment_reference: tx.paymentReference || payment_reference || null,
+        payment_method: tx.paymentMethod || 'TMONEY',
       });
-      tx.status = updated?.status || internalStatus;
-      tx.paygateTxReference = updated?.paygateTxReference || tx.paygateTxReference;
-      tx.paymentReference = updated?.paymentReference || tx.paymentReference;
-      tx.paymentMethod = updated?.paymentMethod || tx.paymentMethod;
-    }
-
-    // If paid and this call discovered payment first, trigger settlement now.
-    if (internalStatus === 'completed' && beforeStatus !== 'completed') {
-      try {
-        await triggerSettlementWebhook({ tx, paygateData: paygateResponse });
-      } catch (settleErr) {
-        console.error('Settlement trigger error:', settleErr.message);
-      }
     }
 
     const latestTx = await db.findTransaction({ id: tx._id });
     return res.json({
       ok: true,
       transaction: latestTx || tx,
-      paygate_response: paygateResponse || null,
+      provider_response: statusResult.raw || null,
     });
   } catch (err) {
     console.error('Status check error:', err);
@@ -574,26 +476,9 @@ router.post('/check-status', async (req, res) => {
   }
 });
 
-// Check platform balance via PayGateGlobal API
-router.post('/check-balance', async (req, res) => {
-  try {
-    const paygateUrl = 'https://paygateglobal.com/api/v1/check-balance';
-    const payload = {
-      auth_token: process.env.PAYGATE_AUTH_TOKEN
-    };
-
-    const pgRes = await axios.post(paygateUrl, payload, { timeout: 15000 });
-
-    return res.json({
-      ok: true,
-      flooz_balance: pgRes.data.flooz || 0,
-      tmoney_balance: pgRes.data.tmoney || 0,
-      total_balance: (parseFloat(pgRes.data.flooz || 0) + parseFloat(pgRes.data.tmoney || 0))
-    });
-  } catch (err) {
-    console.error('Balance check error:', err);
-    return res.status(500).json({ error: 'failed', details: err.message });
-  }
+// Balance endpoints are provider-specific; disabled in YAS direct mode.
+router.post('/check-balance', async (_req, res) => {
+  return res.status(410).json({ ok: false, error: 'disabled', message: 'check-balance disabled in YAS direct mode' });
 });
 
 

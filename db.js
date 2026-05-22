@@ -102,6 +102,9 @@ class Database {
       if (query.identifier) search.identifier = query.identifier;
       if (query.paygate_tx_reference)
         search.paygateTxReference = query.paygate_tx_reference;
+      if (query.payment_reference || query.paymentReference) {
+        search.paymentReference = String(query.payment_reference || query.paymentReference).trim();
+      }
       if (query.order_id || query.orderId) {
         const candidates = buildOrderIdOr(query.order_id || query.orderId);
         if (candidates.length === 1) search.orderId = candidates[0].orderId;
@@ -126,6 +129,7 @@ class Database {
         update.paymentReference = data.payment_reference;
       if (data.payment_method)
         update.paymentMethod = data.payment_method;
+      if (data.phone_number) update.phoneNumber = data.phone_number;
       if (data.status === 'success' || data.status === 'completed')
         update.completedAt = new Date();
 

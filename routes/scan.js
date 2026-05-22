@@ -3,6 +3,7 @@ const express = require('express');
 const axios = require('axios');
 
 const db = require('../db');
+const yasClient = require('../services/yasClient');
 
 const router = express.Router();
 
@@ -90,47 +91,16 @@ const verifyQrSignature = (payload) => {
 
 const validateRequiredFields = (payload) => {
   const orderId = normalizeOrderId(payload.order_id);
-  const clientPhone = String(payload.client_phone || '').trim();
   const amount = Number(payload.amount || 0);
 
-  if (!orderId || !clientPhone || !(amount > 0)) {
+  if (!orderId || !(amount > 0)) {
     return { ok: false, error: 'invalid_payload_structure' };
   }
 
-  return { ok: true, orderId, clientPhone, amount };
+  return { ok: true, orderId, amount };
 };
 
-const buildPaygatePageUrl = ({ tx, payload }) => {
-  const token = process.env.PAYGATE_AUTH_TOKEN || '';
-  if (!token) return '';
-  const params = new URLSearchParams({
-    token,
-    amount: String(Math.round(Number(tx.amount || payload.amount || 0))),
-    identifier: tx.identifier,
-    description: tx.description || payload.description || `Commande ${payload.order_id || ''}`,
-  });
-
-  const phone = String(tx.phoneNumber || payload.client_phone || '').trim();
-  if (phone) params.set('phone', phone);
-
-  const network = String(
-    tx.paymentMethod ||
-      payload.network ||
-      payload.client_network ||
-      ''
-  )
-    .trim()
-    .toUpperCase();
-  // Method 2 (PayGate page) accepts optional network (e.g. MOOV / TOGOCEL).
-  if (/^[A-Z0-9_-]{2,20}$/.test(network)) {
-    params.set('network', network);
-  }
-
-  const returnUrl = String(process.env.PAYGATE_RETURN_URL || '').trim();
-  if (returnUrl) params.set('url', returnUrl);
-
-  return `https://paygateglobal.com/v1/page?${params.toString()}`;
-};
+// PayGate page flow removed: we now use YAS/TMoney direct collect.
 
 // GET /api/scan?p=<base64> - decode + validate signature + duplicate check
 router.get('/', async (req, res) => {
@@ -157,8 +127,7 @@ router.get('/', async (req, res) => {
       duplicate: true,
       already_processed: alreadyProcessed,
       transaction: existing,
-      paygate_url: alreadyProcessed ? null : buildPaygatePageUrl({ tx: existing, payload }),
-      message: alreadyProcessed ? 'Paiement deja termine' : 'Paiement deja initie',
+      message: alreadyProcessed ? 'Paiement deja termine' : 'Paiement deja initie (en cours)',
     });
   } catch (err) {
     console.error('QR scan error:', err);
@@ -166,7 +135,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/scan/validate - validate + create/find tx + return PayGate page URL
+// POST /api/scan/validate - validate + create/find tx + initiate YAS collect payment
 router.post('/validate', async (req, res) => {
   try {
     const packed = req.body?.p;
@@ -179,6 +148,11 @@ router.post('/validate', async (req, res) => {
     const required = validateRequiredFields(payload);
     if (!required.ok) return res.status(400).json({ ok: false, error: required.error });
 
+    const clientPhone = String(req.body?.client_phone || req.body?.phone || '').trim();
+    if (!clientPhone) {
+      return res.status(400).json({ ok: false, error: 'missing_client_phone' });
+    }
+
     const identifier = String(payload.identifier || '').trim();
     const orderId = required.orderId;
 
@@ -186,6 +160,11 @@ router.post('/validate', async (req, res) => {
     const sellerShare = sellerShareRaw != null && sellerShareRaw !== '' ? Number.parseFloat(sellerShareRaw) : null;
     const transportAmount = payload.transport_amount != null ? Number(payload.transport_amount) : (payload.transport_fee != null ? Number(payload.transport_fee) : null);
     const courierFee = payload.courier_fee != null ? Number(payload.courier_fee) : (payload.delivery_fee != null ? Number(payload.delivery_fee) : null);
+    const pickupPointFee = payload.pickup_point_share != null
+      ? Number(payload.pickup_point_share)
+      : payload.pickupPointShare != null
+        ? Number(payload.pickupPointShare)
+        : null;
     const productAmount = payload.product_amount != null ? Number(payload.product_amount) : null;
     const totalAmount = Number(required.amount);
 
@@ -241,7 +220,7 @@ router.post('/validate', async (req, res) => {
         order_id: orderId,
         boutique_id: payload.boutique_id || null,
         client_id: payload.client_id || null,
-        client_phone: required.clientPhone,
+        client_phone: clientPhone,
         amount: totalAmount,
         product_amount: Number.isFinite(productAmount) ? productAmount : totalAmount - Math.max(0, transportAmount || 0),
         transport_fee: Number.isFinite(transportAmount) ? transportAmount : 0,
@@ -255,9 +234,13 @@ router.post('/validate', async (req, res) => {
           items: Array.isArray(payload.items) ? payload.items : [],
           transport_fee: Number.isFinite(transportAmount) ? transportAmount : 0,
           courier_fee: Number.isFinite(courierFee) ? courierFee : null,
+          pickup_point_fee: Number.isFinite(pickupPointFee) ? pickupPointFee : null,
           seller_share: Number.isFinite(sellerShare) ? sellerShare : null,
           seller_user_id: payload.seller_user_id || payload.sellerId || null,
           seller_phone: payload.seller_phone || null,
+          courier_phone: payload.courier_phone || payload.courierPhone || null,
+          pickup_point_phone: payload.pickup_point_phone || payload.pickupPointPhone || null,
+          pickup_point_network: payload.pickup_point_network || payload.pickupPointNetwork || null,
           seller_network: payload.seller_network || null,
           seller_splits: Array.isArray(payload.splits) ? payload.splits : [],
         },
@@ -274,6 +257,16 @@ router.post('/validate', async (req, res) => {
       });
     }
 
+    if ((currentStatus === 'processing' || currentStatus === 'pending') && tx.paymentReference) {
+      return res.json({
+        ok: true,
+        already_processed: false,
+        transaction: tx,
+        payment_reference: tx.paymentReference,
+        message: 'Paiement deja initie (en cours)',
+      });
+    }
+
     const mergedMeta = {
       ...(tx.metadata || {}),
       source: 'scan_qr',
@@ -284,6 +277,9 @@ router.post('/validate', async (req, res) => {
       courier_fee: Number.isFinite(courierFee)
         ? courierFee
         : tx.metadata?.courier_fee ?? tx.metadata?.delivery_fee ?? tx.metadata?.courierFee ?? null,
+      pickup_point_fee: Number.isFinite(pickupPointFee)
+        ? pickupPointFee
+        : tx.metadata?.pickup_point_fee ?? tx.metadata?.pickupPointFee ?? null,
       seller_share: Number.isFinite(sellerShare)
         ? sellerShare
         : tx.metadata?.seller_share ?? tx.metadata?.sellerShare ?? null,
@@ -294,6 +290,17 @@ router.post('/validate', async (req, res) => {
         tx.metadata?.sellerId ??
         null,
       seller_phone: payload.seller_phone ?? tx.metadata?.seller_phone ?? null,
+      courier_phone: payload.courier_phone ?? payload.courierPhone ?? tx.metadata?.courier_phone ?? null,
+      pickup_point_phone:
+        payload.pickup_point_phone ??
+        payload.pickupPointPhone ??
+        tx.metadata?.pickup_point_phone ??
+        null,
+      pickup_point_network:
+        payload.pickup_point_network ??
+        payload.pickupPointNetwork ??
+        tx.metadata?.pickup_point_network ??
+        null,
       seller_network:
         payload.seller_network ?? tx.metadata?.seller_network ?? null,
       seller_splits: Array.isArray(payload.splits)
@@ -301,24 +308,44 @@ router.post('/validate', async (req, res) => {
         : (Array.isArray(tx.metadata?.seller_splits) ? tx.metadata?.seller_splits : []),
     };
 
-    await db.updateTransaction(tx._id, { status: 'processing' });
-    // keep metadata in sync
+    const collectResult = await yasClient.collectPayment({
+      phone: clientPhone,
+      amount: totalAmount,
+      reference: `WS-${String(orderId).slice(-10)}-${tx.identifier}`,
+      description: payload.description || `Paiement commande ${orderId}`,
+      metadata: {
+        order_id: String(orderId),
+        identifier: tx.identifier,
+        seller_share: sellerShare,
+        transport_fee: transportAmount,
+        courier_fee: courierFee,
+        pickup_point_fee: pickupPointFee,
+        pickup_point_phone: payload.pickup_point_phone || payload.pickupPointPhone || null,
+      },
+    });
+
     const Transaction = require('../models/Transaction');
     tx = await Transaction.findByIdAndUpdate(
       tx._id,
-      { $set: { metadata: mergedMeta } },
-      { new: true }
+      {
+        $set: {
+          status: collectResult.ok ? 'processing' : 'failed',
+          paymentReference: collectResult.providerReference || tx.paymentReference || null,
+          paymentMethod: 'TMONEY',
+          phoneNumber: clientPhone,
+          metadata: mergedMeta,
+        },
+      },
+      { new: true },
     );
 
-    const paygateUrl = buildPaygatePageUrl({ tx, payload });
-    if (!paygateUrl) {
-      return res.status(500).json({ ok: false, error: 'missing_paygate_token' });
-    }
     return res.json({
-      ok: true,
+      ok: collectResult.ok,
       transaction: tx,
-      paygate_url: paygateUrl,
-      paygate_methods: ['FLOOZ', 'TMONEY'],
+      payment_reference: collectResult.providerReference || tx.paymentReference || null,
+      provider_status: collectResult.providerStatus || '',
+      status: collectResult.status || 'pending',
+      message: collectResult.ok ? 'Paiement initie sur le numero client' : `Echec init: ${collectResult.reason || 'unknown'}`,
     });
   } catch (err) {
     console.error('Scan validate error:', err);
