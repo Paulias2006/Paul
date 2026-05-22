@@ -56,6 +56,33 @@ function normalizeUrl(value) {
   }
   return raw;
 }
+
+function isValidUrl(value) {
+  try {
+    // eslint-disable-next-line no-new
+    new URL(value);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function resolveEndpoint(key, fallbackPath) {
+  const raw = envOrEmpty(key);
+  const base = normalizeUrl(envOrEmpty('YAS_API_BASE_URL')).replace(/\/$/, '');
+  let candidate = normalizeUrl(raw);
+
+  if (raw && !/^https?:\/\//i.test(raw) && base && isValidUrl(base)) {
+    const path = raw.startsWith('/') ? raw : `/${raw}`;
+    candidate = `${base}${path}`;
+  }
+
+  if (!candidate && base && fallbackPath && isValidUrl(base)) {
+    candidate = `${base}${fallbackPath.startsWith('/') ? fallbackPath : `/${fallbackPath}`}`;
+  }
+
+  return isValidUrl(candidate) ? candidate : '';
+}
  
 async function postJson(url, payload, headers, timeoutMs = 15000) {
   if (!url) {
@@ -80,7 +107,7 @@ async function postJson(url, payload, headers, timeoutMs = 15000) {
  * tweak env URLs/auth without touching business logic.
  */
 async function collectPayment({ phone, amount, reference, description, metadata }) {
-  const url = normalizeUrl(envOrEmpty('YAS_COLLECT_URL'));
+  const url = resolveEndpoint('YAS_COLLECT_URL', '/collect');
   const merchantId = envOrEmpty('YAS_MERCHANT_ID');
   const headers = buildAuthHeaders(envOrEmpty('YAS_COLLECT_AUTH') || envOrEmpty('YAS_API_AUTH'));
  
@@ -124,7 +151,7 @@ async function collectPayment({ phone, amount, reference, description, metadata 
 }
  
 async function payout({ phone, amount, reference, description, metadata }) {
-  const url = normalizeUrl(envOrEmpty('YAS_PAYOUT_URL'));
+  const url = resolveEndpoint('YAS_PAYOUT_URL', '/payout');
   const merchantId = envOrEmpty('YAS_MERCHANT_ID');
   const headers = buildAuthHeaders(envOrEmpty('YAS_PAYOUT_AUTH') || envOrEmpty('YAS_API_AUTH'));
  
@@ -167,7 +194,7 @@ async function payout({ phone, amount, reference, description, metadata }) {
 }
  
 async function fetchStatus({ reference, providerReference }) {
-  const url = normalizeUrl(envOrEmpty('YAS_STATUS_URL'));
+  const url = resolveEndpoint('YAS_STATUS_URL', '/status');
   const headers = buildAuthHeaders(envOrEmpty('YAS_STATUS_AUTH') || envOrEmpty('YAS_API_AUTH'));
   if (!url) {
     return { ok: false, status: 'pending', reason: 'missing_yas_status_url' };
