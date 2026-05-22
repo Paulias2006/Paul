@@ -16,6 +16,9 @@ const WEESHOP_ORDER_VERIFY_URL =
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
   'https://weeshop.onrender.com/api/yas/weedelivred-order-verify';
+const WEESHOP_QR_VERIFY_URL =
+  process.env.WEESHOP_QR_VERIFY_URL ||
+  'https://weeshop.onrender.com/api/orders/scan';
 
 function parseNumber(value) {
   const num = Number.parseFloat(value);
@@ -65,7 +68,7 @@ const decodePackedPayload = (packed) => {
   return JSON.parse(decoded);
 };
 
-const verifyQrSignature = (payload) => {
+async function verifyQrSignature(payload, packed) {
   const signature = payload.signature || payload.qr_signature;
   if (!signature) return { ok: false, error: 'missing_signature' };
 
@@ -88,9 +91,23 @@ const verifyQrSignature = (payload) => {
     return expected === signature;
   });
 
+  if (!verified && packed) {
+    try {
+      const response = await axios.get(WEESHOP_QR_VERIFY_URL, {
+        params: { p: packed },
+        timeout: 10000,
+      });
+      if (response?.data?.verified === true) {
+        return { ok: true, verifiedBy: 'weeshop' };
+      }
+    } catch (_) {
+      // Keep the original invalid signature result.
+    }
+  }
+
   if (!verified) return { ok: false, error: 'invalid_signature' };
   return { ok: true };
-};
+}
 
 const validateRequiredFields = (payload) => {
   const orderId = normalizeOrderId(payload.order_id);
@@ -112,7 +129,7 @@ router.get('/', async (req, res) => {
 
   try {
     const payload = decodePackedPayload(packed);
-    const signatureCheck = verifyQrSignature(payload);
+    const signatureCheck = await verifyQrSignature(payload, packed);
     if (!signatureCheck.ok) return res.status(401).json({ ok: false, error: signatureCheck.error });
 
     const required = validateRequiredFields(payload);
@@ -145,7 +162,7 @@ router.post('/validate', async (req, res) => {
     if (!packed) return res.status(400).json({ ok: false, error: 'missing_p' });
 
     const payload = decodePackedPayload(packed);
-    const signatureCheck = verifyQrSignature(payload);
+    const signatureCheck = await verifyQrSignature(payload, packed);
     if (!signatureCheck.ok) return res.status(401).json({ ok: false, error: signatureCheck.error });
 
     const required = validateRequiredFields(payload);
