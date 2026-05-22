@@ -53,9 +53,12 @@ async function verifyOrderWithWeeshop({ orderId, paymentReference }) {
   return response.data;
 }
 
-const getScanSecret = () =>
-  process.env.QR_SCAN_SECRET ||
-  'default_key';
+const getScanSecrets = () => Array.from(new Set([
+  process.env.WEEDELIVRED_SYNC_SECRET,
+  process.env.QR_SCAN_SECRET,
+  process.env.ALITOGOPAY_API_KEY,
+  'default_key',
+].map((value) => String(value || '').trim()).filter(Boolean)));
 
 const decodePackedPayload = (packed) => {
   const decoded = Buffer.from(String(packed || ''), 'base64').toString('utf8');
@@ -77,12 +80,15 @@ const verifyQrSignature = (payload) => {
       return acc;
     }, {});
 
-  const expected = crypto
-    .createHmac('sha256', getScanSecret())
-    .update(JSON.stringify(sorted))
-    .digest('hex');
+  const verified = getScanSecrets().some((secret) => {
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(JSON.stringify(sorted))
+      .digest('hex');
+    return expected === signature;
+  });
 
-  if (expected !== signature) return { ok: false, error: 'invalid_signature' };
+  if (!verified) return { ok: false, error: 'invalid_signature' };
   return { ok: true };
 };
 
