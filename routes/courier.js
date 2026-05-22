@@ -1,5 +1,7 @@
 // Courier Routes - Delivery Management for Couriers
 const express = require('express');
+const axios = require('axios');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const router = express.Router();
 const Message = require('../models/Message');
@@ -11,6 +13,11 @@ const { sendPushToUsersByRole } = require('../services/pushService');
 const DELIVERY_VISIBLE_DAYS = 7;
 const AVAILABLE_ORDER_STATUSES = ['acceptee', 'prete', 'ready'];
 const ACTIVE_DELIVERY_STATUSES = ['assigned', 'picked_up', 'in_transit'];
+const SYNC_SECRET = process.env.WEEDELIVRED_SYNC_SECRET || '';
+const WEESHOP_DELIVERY_SYNC_URL =
+  process.env.WEESHOP_WEEDELIVRED_DELIVERY_SYNC_URL ||
+  process.env.WEESHOP_DELIVERY_SYNC_URL ||
+  'https://weeshop.onrender.com/api/yas/weedelivred-delivery-sync';
 
 function oneWeekAgoDate() {
   return new Date(Date.now() - DELIVERY_VISIBLE_DAYS * 24 * 60 * 60 * 1000);
@@ -69,6 +76,42 @@ function sameTogoPhone(a, b) {
 function isPickupPointLeg(metadata = {}) {
   return String(metadata.leg_type || metadata.legType || '').toLowerCase() === 'boutique_to_point' ||
     String(metadata.mode_livraison || metadata.modeLivraison || '').toLowerCase() === 'point_retrait';
+}
+
+function buildSyncSignatureHeaders(payload) {
+  if (!SYNC_SECRET) {
+    return { 'Content-Type': 'application/json' };
+  }
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = crypto.randomBytes(12).toString('hex');
+  const raw = JSON.stringify(payload || {});
+  const signature = crypto
+    .createHmac('sha256', SYNC_SECRET)
+    .update(`${timestamp}.${nonce}.${raw}`)
+    .digest('hex');
+  return {
+    'Content-Type': 'application/json',
+    'X-Webhook-Timestamp': timestamp,
+    'X-Webhook-Nonce': nonce,
+    'X-Webhook-Signature': signature,
+  };
+}
+
+async function syncDirectDeliveryToWeeshop(delivery, status) {
+  const meta = delivery.metadata || {};
+  if (!meta.orderId || isPickupPointLeg(meta)) return;
+  const mappedStatus = status === 'delivered' ? 'delivered' : 'shipped';
+  const payload = {
+    order_id: String(meta.orderId),
+    delivery_id: String(delivery._id),
+    delivery_status: mappedStatus,
+    payment_reference: meta.paymentReference || '',
+    datetime: new Date().toISOString(),
+  };
+  await axios.post(WEESHOP_DELIVERY_SYNC_URL, payload, {
+    timeout: 10000,
+    headers: buildSyncSignatureHeaders(payload),
+  });
 }
 
 async function notifyPickupPointUsersForDelivery(delivery) {
@@ -399,6 +442,14 @@ router.put('/update-delivery-status/:deliveryId', authenticateToken, async (req,
 
     if (status === 'delivered' && isPickupPointLeg(delivery.metadata)) {
       await notifyPickupPointUsersForDelivery(delivery);
+    }
+
+    if (['picked_up', 'in_transit', 'delivered'].includes(status)) {
+      try {
+        await syncDirectDeliveryToWeeshop(delivery, status);
+      } catch (syncError) {
+        console.error('Weeshop direct delivery sync error:', syncError?.message || syncError);
+      }
     }
 
     // If this was leg 1 of a multi-leg delivery, unlock leg 2
