@@ -11,12 +11,11 @@ const router = express.Router();
 const DELIVERY_VISIBLE_DAYS = 7;
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
-  process.env.PAYGATE_WEBHOOK_SECRET ||
   '';
 const WEESHOP_DELIVERY_SYNC_URL =
   process.env.WEESHOP_WEEDELIVRED_DELIVERY_SYNC_URL ||
   process.env.WEESHOP_DELIVERY_SYNC_URL ||
-  'https://weeshop.onrender.com/api/paygate/weedelivred-delivery-sync';
+  'https://weeshop.onrender.com/api/yas/weedelivred-delivery-sync';
 
 function oneWeekAgoDate() {
   return new Date(Date.now() - DELIVERY_VISIBLE_DAYS * 24 * 60 * 60 * 1000);

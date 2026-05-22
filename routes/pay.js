@@ -7,12 +7,11 @@ const yasClient = require('../services/yasClient');
 
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
-  process.env.PAYGATE_WEBHOOK_SECRET ||
   '';
 const WEESHOP_ORDER_VERIFY_URL =
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'https://weeshop.onrender.com/api/paygate/weedelivred-verify-order';
+  'https://weeshop.onrender.com/api/yas/weedelivred-order-verify';
 
 function parseNumber(value) {
   const num = Number.parseFloat(value);
@@ -252,7 +251,7 @@ router.post('/initiate', async (req, res) => {
       await db.createPaymentLog({
         transaction_id: null,
         type: 'error',
-        endpoint: 'paygate_initiate',
+      endpoint: 'yas_collect',
         payload: err.response.data,
         status_code: err.response.status,
         error_message: err.message
@@ -417,7 +416,7 @@ router.post('/withdraw', async (req, res) => {
       return res.status(410).json({
         ok: false,
         error: 'withdraw_disabled',
-        message: 'Retraits désactivés (pas de PayGate, pas de wallet interne).',
+        message: 'Retraits manuels desactives: les reglements passent automatiquement par YAS/TMoney.',
       });
     } catch (e) {
       console.error('[WITHDRAW] Erreur création transaction:', e);

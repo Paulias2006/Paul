@@ -59,7 +59,7 @@ const transactionSchema = new mongoose.Schema(
       required: true,
       // Format: ATG-1234567890-1234 or WD-1234567890-1234
     },
-    paygateTxReference: {
+    legacyProviderReference: {
       type: String,
       unique: true,
       sparse: true,
@@ -67,11 +67,11 @@ const transactionSchema = new mongoose.Schema(
     paymentReference: {
       type: String,
       default: null,
-      // Reference code from Flooz/TMoney for support
+      // Reference code from YAS/TMoney for support
     },
     paymentMethod: {
       type: String,
-      enum: ['FLOOZ', 'TMONEY', 'mtn', 'moov', 'bank_transfer', 'wallet', 'manual'],
+      enum: ['TMONEY', 'wallet', 'manual'],
       default: null,
     },
     phoneNumber: {

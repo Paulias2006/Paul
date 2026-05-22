@@ -100,8 +100,8 @@ class Database {
 
       if (query.id) search._id = query.id;
       if (query.identifier) search.identifier = query.identifier;
-      if (query.paygate_tx_reference)
-        search.paygateTxReference = query.paygate_tx_reference;
+      if (query.legacy_provider_reference || query.provider_reference)
+        search.legacyProviderReference = query.legacy_provider_reference || query.provider_reference;
       if (query.payment_reference || query.paymentReference) {
         search.paymentReference = String(query.payment_reference || query.paymentReference).trim();
       }
@@ -123,8 +123,8 @@ class Database {
       const update = {};
 
       if (data.status) update.status = data.status;
-      if (data.paygate_tx_reference)
-        update.paygateTxReference = data.paygate_tx_reference;
+      if (data.legacy_provider_reference || data.provider_reference)
+        update.legacyProviderReference = data.legacy_provider_reference || data.provider_reference;
       if (data.payment_reference)
         update.paymentReference = data.payment_reference;
       if (data.payment_method)

@@ -17,8 +17,10 @@ Minimum required values:
 - `MONGODB_URI` (MongoDB Atlas connection string)
 - `JWT_SECRET`
 - `JWT_REFRESH_SECRET`
-- `PAYGATE_AUTH_TOKEN`
-- `PAYGATE_WEBHOOK_SECRET`
+- `YAS_COLLECT_URL`
+- `YAS_PAYOUT_URL`
+- `YAS_MERCHANT_ID`
+- `YAS_API_AUTH` or the provider-specific YAS auth values
 - `FRONTEND_URL` (e.g. `https://weeshop.onrender.com`)
 - `CORS_ORIGIN` (e.g. `https://weeshop.onrender.com`)
 - `SELF_BASE_URL` (backend public URL)
@@ -38,20 +40,20 @@ Minimum required values:
 - `NODE_ENV=production`
 - `PORT=4001` (Render sets the port automatically)
 - `MONGODB_URI=mongodb+srv://<DB_USER>:<DB_PASSWORD>@cluster0.kqn5p5f.mongodb.net/alitogopay?retryWrites=true&w=majority`
-- `SELF_BASE_URL=https://alitogopay.onrender.com`
+- `SELF_BASE_URL=https://weedelivred.onrender.com`
 - `FRONTEND_URL=https://weeshop.onrender.com`
-- `CORS_ORIGIN=https://weeshop.onrender.com,https://alitogopay.onrender.com`
+- `CORS_ORIGIN=https://weeshop.onrender.com,https://weedelivred.onrender.com,https://alitogopay.onrender.com`
 
 ## Weeshop integration notes
 
 - For production, all Weeshop sync URLs must point to the live Weeshop backend.
-- Replace local URLs such as `http://localhost:5000/api/paygate/weedelivred-sync` with `https://weeshop.onrender.com/api/paygate/weedelivred-sync`.
-- Add both payment and payout sync URLs in the environment variables.
+- Use the signed YAS sync URLs, e.g. `https://weeshop.onrender.com/api/yas/weedelivred-payment-sync`.
+- Add payment, payout, delivery and order verification sync URLs in the environment variables.
 
 ## Security notes
 
 - Keep secrets out of GitHub. Do not commit `.env`.
-- Use strong random values for `JWT_SECRET`, `JWT_REFRESH_SECRET`, `WEEDELIVRED_SYNC_SECRET`, and webhook secrets.
+- Use strong random values for `JWT_SECRET`, `JWT_REFRESH_SECRET`, `WEEDELIVRED_SYNC_SECRET`, and YAS webhook secrets.
 - Use `EMAIL_APP_PASSWORD` or `SENDGRID_API_KEY` for email sending instead of plain SMTP passwords when possible.
 
 ## Local development

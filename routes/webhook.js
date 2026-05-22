@@ -10,18 +10,17 @@ const router = express.Router();
 
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
-  process.env.PAYGATE_WEBHOOK_SECRET ||
   '';
 
 const WEESHOP_PAYMENT_SYNC_URL =
   process.env.WEESHOP_WEEDELIVRED_PAYMENT_SYNC_URL ||
   process.env.WEESHOP_PAYMENT_SYNC_URL ||
-  'https://weeshop.onrender.com/api/paygate/weedelivred-sync';
+  'https://weeshop.onrender.com/api/yas/weedelivred-payment-sync';
 
 const WEESHOP_PAYOUT_SYNC_URL =
   process.env.WEESHOP_WEEDELIVRED_PAYOUT_SYNC_URL ||
   process.env.WEESHOP_PAYOUT_SYNC_URL ||
-  'https://weeshop.onrender.com/api/paygate/weedelivred-payout-sync';
+  'https://weeshop.onrender.com/api/yas/weedelivred-seller-payout-sync';
 
 function parseNumber(value) {
   if (value == null || value === '') return null;
@@ -178,12 +177,12 @@ async function runPayouts({ tx, sellerShare, courierFee }) {
   return { sellerResult, courierResult, pickupPointResult };
 }
 
-// Legacy PayGate webhook disabled (explicit).
+// Legacy generic webhook disabled: YAS callbacks must use /api/webhook/yas.
 router.post('/', async (_req, res) => {
   return res.status(410).json({
     ok: false,
-    error: 'paygate_disabled',
-    message: 'PayGate disabled; use /api/webhook/yas',
+    error: 'legacy_webhook_disabled',
+    message: 'Paiement YAS uniquement; utilisez /api/webhook/yas',
   });
 });
 

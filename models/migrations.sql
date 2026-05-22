@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS ap_transactions (
   courier_id INT DEFAULT NULL COMMENT 'ID du coursier',
   seller_user_id INT DEFAULT NULL COMMENT 'ID de l\'utilisateur vendeur',
   identifier VARCHAR(128) DEFAULT NULL COMMENT 'Identifiant unique ATG-XXXX',
-  paygate_tx_reference VARCHAR(128) DEFAULT NULL COMMENT 'Référence PayGateGlobal',
+  provider_reference VARCHAR(128) DEFAULT NULL COMMENT 'Reference fournisseur YAS',
   network VARCHAR(32) DEFAULT NULL COMMENT 'Réseau mobile (TMoney/Moov)',
   payment_method VARCHAR(32) DEFAULT NULL COMMENT 'Méthode de paiement',
   status VARCHAR(32) DEFAULT 'pending' COMMENT 'Statut: pending/registered/success/failed',
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS ap_transactions (
   INDEX idx_order_id (order_id),
   INDEX idx_status (status),
   INDEX idx_identifier (identifier),
-  INDEX idx_paygate_ref (paygate_tx_reference),
+  INDEX idx_provider_ref (provider_reference),
   INDEX idx_qr_token (qr_token),
   INDEX idx_created_at (created_at)
 );

@@ -11,12 +11,11 @@ const normalizeOrderId = (value) => String(value || '').trim();
 
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
-  process.env.PAYGATE_WEBHOOK_SECRET ||
   '';
 const WEESHOP_ORDER_VERIFY_URL =
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'https://weeshop.onrender.com/api/paygate/weedelivred-verify-order';
+  'https://weeshop.onrender.com/api/yas/weedelivred-order-verify';
 
 function parseNumber(value) {
   const num = Number.parseFloat(value);
@@ -56,8 +55,6 @@ async function verifyOrderWithWeeshop({ orderId, paymentReference }) {
 
 const getScanSecret = () =>
   process.env.QR_SCAN_SECRET ||
-  process.env.PAYGATE_CALLBACK_SECRET ||
-  process.env.PAYGATE_WEBHOOK_SECRET ||
   'default_key';
 
 const decodePackedPayload = (packed) => {
@@ -100,7 +97,7 @@ const validateRequiredFields = (payload) => {
   return { ok: true, orderId, amount };
 };
 
-// PayGate page flow removed: we now use YAS/TMoney direct collect.
+// QR flow uses YAS/TMoney direct collect.
 
 // GET /api/scan?p=<base64> - decode + validate signature + duplicate check
 router.get('/', async (req, res) => {

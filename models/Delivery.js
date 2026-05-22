@@ -78,7 +78,7 @@ const deliverySchema = new mongoose.Schema(
       product_amount: Number,
       delivery_fee: Number,
       status: String,
-      paygate_reference: String
+      payment_reference: String
     },
     delivery_info: {
       distance: Number,

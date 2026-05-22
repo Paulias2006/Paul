@@ -39,7 +39,7 @@ const generateTokens = (user) => {
   return { accessToken, refreshToken };
 };
 
-const PAYOUT_NETWORKS = new Set(['FLOOZ', 'TMONEY']);
+const PAYOUT_NETWORKS = new Set(['TMONEY']);
 
 function requireAdminProvision(req, res) {
   const configuredKey = String(
@@ -656,7 +656,7 @@ router.put('/payout-settings', authenticateToken, async (req, res) => {
         return res.status(400).json({
           ok: false,
           error: 'invalid_network',
-          message: 'Reseau payout invalide (FLOOZ ou TMONEY)',
+          message: 'Reseau payout invalide (YAS / TMoney uniquement)',
         });
       }
       metadata.payoutNetwork = network || null;

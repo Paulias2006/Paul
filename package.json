@@ -1,7 +1,7 @@
 {
   "name": "alitogopay-backend",
   "version": "0.1.0",
-  "description": "Backend API for AlitogoPay - payment orchestration and PayGate integration",
+  "description": "Backend API for Weedelivred / AlitogoPay - YAS payment orchestration",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
