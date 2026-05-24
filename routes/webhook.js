@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const db = require('../db');
 const yasClient = require('../services/yasClient');
 const Transaction = require('../models/Transaction');
+const { normalizeWeeshopSyncUrl } = require('../utils/weeshopSyncUrl');
 
 const router = express.Router();
 
@@ -12,15 +13,19 @@ const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
   '';
 
-const WEESHOP_PAYMENT_SYNC_URL =
+const WEESHOP_PAYMENT_SYNC_URL = normalizeWeeshopSyncUrl(
   process.env.WEESHOP_WEEDELIVRED_PAYMENT_SYNC_URL ||
   process.env.WEESHOP_PAYMENT_SYNC_URL ||
-  'https://weeshop.onrender.com/api/yas/weedelivred-payment-sync';
+  '',
+  'https://weeshop.onrender.com/api/yas/weedelivred-payment-sync',
+);
 
-const WEESHOP_PAYOUT_SYNC_URL =
+const WEESHOP_PAYOUT_SYNC_URL = normalizeWeeshopSyncUrl(
   process.env.WEESHOP_WEEDELIVRED_PAYOUT_SYNC_URL ||
   process.env.WEESHOP_PAYOUT_SYNC_URL ||
-  'https://weeshop.onrender.com/api/yas/weedelivred-seller-payout-sync';
+  '',
+  'https://weeshop.onrender.com/api/yas/weedelivred-seller-payout-sync',
+);
 
 function parseNumber(value) {
   if (value == null || value === '') return null;

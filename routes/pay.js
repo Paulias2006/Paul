@@ -4,14 +4,17 @@ const router = express.Router();
 const axios = require('axios');
 const db = require('../db');
 const yasClient = require('../services/yasClient');
+const { normalizeWeeshopSyncUrl } = require('../utils/weeshopSyncUrl');
 
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
   '';
-const WEESHOP_ORDER_VERIFY_URL =
+const WEESHOP_ORDER_VERIFY_URL = normalizeWeeshopSyncUrl(
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'https://weeshop.onrender.com/api/yas/weedelivred-order-verify';
+  '',
+  'https://weeshop.onrender.com/api/yas/weedelivred-order-verify',
+);
 
 function parseNumber(value) {
   const num = Number.parseFloat(value);

@@ -9,15 +9,18 @@ const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const liveTracking = require('../services/live_tracking_ws');
 const { sendPushToUsersByRole } = require('../services/pushService');
+const { normalizeWeeshopSyncUrl } = require('../utils/weeshopSyncUrl');
 
 const DELIVERY_VISIBLE_DAYS = 7;
 const AVAILABLE_ORDER_STATUSES = ['acceptee', 'prete', 'ready'];
 const ACTIVE_DELIVERY_STATUSES = ['assigned', 'picked_up', 'in_transit'];
 const SYNC_SECRET = process.env.WEEDELIVRED_SYNC_SECRET || '';
-const WEESHOP_DELIVERY_SYNC_URL =
+const WEESHOP_DELIVERY_SYNC_URL = normalizeWeeshopSyncUrl(
   process.env.WEESHOP_WEEDELIVRED_DELIVERY_SYNC_URL ||
   process.env.WEESHOP_DELIVERY_SYNC_URL ||
-  'https://weeshop.onrender.com/api/yas/weedelivred-delivery-sync';
+  '',
+  'https://weeshop.onrender.com/api/yas/weedelivred-delivery-sync',
+);
 
 function oneWeekAgoDate() {
   return new Date(Date.now() - DELIVERY_VISIBLE_DAYS * 24 * 60 * 60 * 1000);

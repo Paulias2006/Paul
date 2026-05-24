@@ -4,6 +4,7 @@ const axios = require('axios');
 
 const db = require('../db');
 const yasClient = require('../services/yasClient');
+const { normalizeWeeshopSyncUrl } = require('../utils/weeshopSyncUrl');
 
 const router = express.Router();
 
@@ -12,10 +13,12 @@ const normalizeOrderId = (value) => String(value || '').trim();
 const SYNC_SECRET =
   process.env.WEEDELIVRED_SYNC_SECRET ||
   '';
-const WEESHOP_ORDER_VERIFY_URL =
+const WEESHOP_ORDER_VERIFY_URL = normalizeWeeshopSyncUrl(
   process.env.WEESHOP_WEEDELIVRED_ORDER_VERIFY_URL ||
   process.env.WEESHOP_WEEDELIVRED_VERIFY_ORDER_URL ||
-  'https://weeshop.onrender.com/api/yas/weedelivred-order-verify';
+  '',
+  'https://weeshop.onrender.com/api/yas/weedelivred-order-verify',
+);
 const WEESHOP_QR_VERIFY_URL =
   process.env.WEESHOP_QR_VERIFY_URL ||
   'https://weeshop.onrender.com/api/orders/scan';
